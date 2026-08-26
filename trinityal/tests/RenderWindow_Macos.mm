@@ -64,8 +64,34 @@ bool s_keyPressed = false;
 @end
 
 
+namespace
+{
+// NSApp is used to pump events in WithWindowFixture_Macos.mm, but nothing ever
+// creates the application object. Without this the shared instance stays nil,
+// nextEventMatchingMask returns immediately, and the window is never activated
+// or ordered on screen, so --interactive renders into a window nobody can see.
+void EnsureApplication()
+{
+	static bool initialized = false;
+	if( initialized )
+	{
+		return;
+	}
+	initialized = true;
+
+	[NSApplication sharedApplication];
+	// A plain executable is not a bundled app, so it defaults to an accessory
+	// policy that cannot take focus or show in the Dock.
+	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+	[NSApp finishLaunching];
+	[NSApp activateIgnoringOtherApps:YES];
+}
+}
+
 RenderWindow::RenderWindow( uint32_t width, uint32_t height )
 {
+	EnsureApplication();
+
 	NSRect frame = NSMakeRect( 0, 0, width, height );
 	TrinityALTestWindow* window =
 		[[TrinityALTestWindow alloc] initWithContentRect:frame
@@ -81,6 +107,8 @@ RenderWindow::RenderWindow( uint32_t width, uint32_t height )
 	// the default behavior for TrinityALTest.
 	view.wantsLayer = YES;
 
+	[window setTitle:@"TrinityALTest"];
+	[window center];
 	[window makeKeyAndOrderFront:nil];
 	m_handle = window;
 }
