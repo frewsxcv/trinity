@@ -75,7 +75,7 @@ TEST_F( Buffer, WritingInvalidBufferFails )
 TEST_F( Buffer, UpdatingInvalidBufferFails )
 {
 	Tr2BufferAL buffer;
-	float data;
+	float data = 0.0f;
 	ASSERT_HRESULT_FAILED( buffer.UpdateBuffer( 0, sizeof( float ), &data, *renderContext ) );
 }
 

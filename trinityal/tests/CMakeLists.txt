@@ -266,3 +266,65 @@ endif()
 
 
 
+if(APPLE AND BUILD_METAL)
+    ccp_add_executable(TrinityALTest_metal ${_SOURCES})
+    target_link_libraries(TrinityALTest_metal PRIVATE TrinityAL_metal)
+    target_compile_definitions(TrinityALTest_metal PRIVATE TRINITY_PLATFORM=TRINITY_METAL)
+    set_shared_trinityaltest_properties(TrinityALTest_metal)
+
+    set_target_properties(TrinityALTest_metal PROPERTIES FOLDER "Tests")
+
+    # The shader sources are compiled by the custom commands below, never by the
+    # compiler driver, and MetalDefines.h is only ever #included by them.
+    set(_SHADER_SOURCES_METAL ${_SHADERS_METAL})
+    list(FILTER _SHADER_SOURCES_METAL EXCLUDE REGEX "\\.h$")
+
+    target_sources(TrinityALTest_metal PRIVATE ${_SHADERS_METAL})
+    source_group(Shaders FILES ${_SHADERS_METAL})
+    set_source_files_properties(${_SHADERS_METAL} PROPERTIES HEADER_FILE_ONLY ON)
+
+    # The Metal compiler ships as a separately downloaded toolchain whose install
+    # path is a versioned cryptex mount, so it is resolved through xcrun rather
+    # than looked up on PATH.
+    find_program(XCRUN_TOOL xcrun REQUIRED)
+    execute_process(
+        COMMAND ${XCRUN_TOOL} -sdk macosx -f metal
+        OUTPUT_VARIABLE METAL_TOOL
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _METAL_LOOKUP_RESULT
+        ERROR_QUIET
+    )
+    if(NOT _METAL_LOOKUP_RESULT EQUAL 0 OR NOT EXISTS ${METAL_TOOL})
+        message(FATAL_ERROR
+            "The Metal compiler was not found. Install it with:\n"
+            "  xcodebuild -downloadComponent MetalToolchain")
+    endif()
+    message(STATUS "Using Metal compiler at ${METAL_TOOL}")
+
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    set(_GENERATED_SHADER_HEADERS_METAL)
+    foreach(shaderSource ${_SHADER_SOURCES_METAL})
+        string(REGEX REPLACE "h$" ".h" shaderOutput ${shaderSource})
+        add_custom_command(
+            OUTPUT ${GENERATED_SOURCES_DIR}/${shaderOutput}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${GENERATED_SOURCES_DIR}/Shaders.metal
+            COMMAND ${METAL_TOOL} -x metal
+                    -I ${CMAKE_CURRENT_SOURCE_DIR}/Shaders.metal
+                    -o ${GENERATED_SOURCES_DIR}/${shaderSource}.metallib
+                    ${CMAKE_CURRENT_SOURCE_DIR}/${shaderSource}
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/bin2h.cmd
+                    ${GENERATED_SOURCES_DIR}/${shaderSource}.metallib
+                    ${GENERATED_SOURCES_DIR}/${shaderOutput}
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shaderSource}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/Shaders.metal/MetalDefines.h
+            COMMENT "Compiling Metal shader ${shaderSource}"
+        )
+        list(APPEND _GENERATED_SHADER_HEADERS_METAL ${GENERATED_SOURCES_DIR}/${shaderOutput})
+    endforeach()
+
+    # The generated headers are #included by the test sources, so they have to
+    # exist before anything in the target is compiled.
+    add_custom_target(TrinityALTest_metal_shaders DEPENDS ${_GENERATED_SHADER_HEADERS_METAL})
+    add_dependencies(TrinityALTest_metal TrinityALTest_metal_shaders)
+endif()
